@@ -22,12 +22,24 @@ nav{display:flex;gap:4px;padding:5px;border-radius:99px;background:rgba(255,241,
 nav button{padding:11px 22px;border-radius:99px;font-size:.95rem;font-weight:400;color:var(--dim);transition:background .3s,color .3s}
 nav button[aria-pressed=true]{background:var(--ink);color:#2a0c3a;font-weight:600}
 #meter{position:fixed;left:0;bottom:0;width:3px;height:0;background:hsl(var(--h),95%,62%);box-shadow:0 0 14px hsl(var(--h),95%,62%)}
+#songbox{position:fixed;right:22px;top:calc(env(safe-area-inset-top,0px) + 66px);width:200px;display:flex;flex-direction:column;gap:6px;z-index:2}
+#songbox iframe{width:200px;height:113px;border:0;border-radius:12px}
+.row{display:flex;gap:6px}
+#songurl{flex:1;min-width:0;padding:8px 12px;border:0;border-radius:99px;background:rgba(255,241,230,.1);color:var(--ink);font:inherit;font-size:.8rem;-webkit-user-select:text;user-select:text}
+#songurl::placeholder{color:var(--dim)}
+#songgo{padding:8px 12px;border-radius:99px;background:var(--ink);color:#2a0c3a;font-size:.8rem;font-weight:600}
+#songmsg{margin:0;font-size:.75rem;color:var(--dim);min-height:1em}
 @media (prefers-reduced-motion:reduce){#hint{transition:none}}
 </style>
 </head>
 <body>
 <canvas id="c" aria-hidden="true"></canvas>
 <div id="meter" aria-hidden="true"></div>
+<div id="songbox">
+  <div id="ytp"></div>
+  <div class="row"><input id="songurl" type="text" placeholder="Paste YouTube link" aria-label="YouTube link" autocomplete="off"><button id="songgo">Load</button></div>
+  <p id="songmsg" role="status"></p>
+</div>
 <div class="ui">
   <div class="top">
     <h1 id="title">Crescendo</h1>
@@ -59,32 +71,30 @@ let hintTimer;
 function setHint(s){hintEl.style.opacity=0;clearTimeout(hintTimer);hintTimer=setTimeout(()=>{hintEl.textContent=s||HINTS[mode];hintEl.style.opacity=1},RM?0:350)}
 setHint();
 
-/* ---------- audio ---------- */
-let AC,o1,o2,fl,mg,snd=true;
-function initAudio(){
-  if(!AC){try{AC=new(window.AudioContext||window.webkitAudioContext)()}catch(e){return}
-    mg=AC.createGain();mg.gain.value=0;fl=AC.createBiquadFilter();fl.type='lowpass';
-    o1=AC.createOscillator();o1.type='sawtooth';o2=AC.createOscillator();o2.type='sine';
-    o1.connect(fl);o2.connect(fl);fl.connect(mg);mg.connect(AC.destination);o1.start();o2.start()}
-  if(AC.state==='suspended')AC.resume()
+/* ---------- sound: YouTube player (official embed) ---------- */
+const DEFAULT_URL=''; /* optional: paste a YouTube link here to hard-code the song for every visitor */
+let yt=null,ytOk=false,snd=true,vol=-1,curId=null,apiAsked=false;
+const songMsg=m=>{document.getElementById('songmsg').textContent=m};
+const ytId=u=>{u=(u||'').trim();const m=u.match(/(?:v=|youtu\.be\/|embed\/|shorts\/)([\w-]{11})/);return m?m[1]:(/^[\w-]{11}$/.test(u)?u:null)};
+function mkPlayer(){yt=new YT.Player('ytp',{width:200,height:113,videoId:curId,playerVars:{playsinline:1,rel:0,autoplay:1},
+  events:{onReady:()=>{ytOk=true;vol=-1;if(!snd)yt.pauseVideo()},onStateChange:e=>{if(e.data===0&&snd)yt.playVideo()}}})}
+function setSong(u){
+  const id=ytId(u);if(!id){songMsg('That is not a YouTube link.');return}
+  curId=id;songMsg('');try{localStorage.setItem('crescendo_yt',id)}catch(e){}
+  if(yt&&ytOk){yt.loadVideoById({videoId:id});if(!snd)yt.pauseVideo();return}
+  if(window.YT&&YT.Player){mkPlayer();return}
+  if(!apiAsked){apiAsked=true;window.onYouTubeIframeAPIReady=mkPlayer;const sc=document.createElement('script');sc.src='https://www.youtube.com/iframe_api';document.head.appendChild(sc)}
 }
-function aud(){
-  if(!AC)return;const n=AC.currentTime;
-  o1.frequency.setTargetAtTime(55+a*a*110,n,.1);o2.frequency.setTargetAtTime(110+a*a*330,n,.1);
-  fl.frequency.setTargetAtTime(250+a*2200,n,.1);mg.gain.setTargetAtTime(snd?.01+a*.055:0,n,.15)
-}
-function tick(){
-  if(!AC||!snd)return;const n=AC.currentTime,o=AC.createOscillator(),g=AC.createGain();
-  o.frequency.value=330+a*500;g.gain.setValueAtTime(.08,n);g.gain.exponentialRampToValueAtTime(.0001,n+.18);
-  o.connect(g);g.connect(AC.destination);o.start(n);o.stop(n+.2)
-}
-function bloom(){
-  if(!AC||!snd)return;const n=AC.currentTime;
-  [220,277.2,329.6,440,554.4].forEach((f,i)=>{const o=AC.createOscillator(),g=AC.createGain();
-    o.type='sine';o.frequency.value=f;g.gain.setValueAtTime(0,n);g.gain.linearRampToValueAtTime(.07,n+.25+i*.05);
-    g.gain.exponentialRampToValueAtTime(.0001,n+6);o.connect(g);g.connect(AC.destination);o.start(n);o.stop(n+6.2)})
-}
-document.getElementById('snd').onclick=e=>{snd=!snd;e.currentTarget.setAttribute('aria-pressed',snd);e.currentTarget.textContent=snd?'Sound on':'Sound off';initAudio()};
+function initAudio(){if(ytOk&&snd){const st=yt.getPlayerState();if(st!==1&&st!==3)yt.playVideo()}}
+function aud(){if(!ytOk)return;const v=snd?(phase==='peak'?100:Math.round(10+a*90)):0;if(v!==vol){vol=v;yt.setVolume(v)}}
+function tick(){}
+function bloom(){}
+document.getElementById('snd').onclick=e=>{snd=!snd;e.currentTarget.setAttribute('aria-pressed',snd);e.currentTarget.textContent=snd?'Sound on':'Sound off';if(ytOk){snd?yt.playVideo():yt.pauseVideo()}};
+const go=()=>setSong(document.getElementById('songurl').value);
+document.getElementById('songgo').onclick=go;
+document.getElementById('songurl').addEventListener('keydown',e=>{if(e.key==='Enter')go()});
+let saved=null;try{saved=localStorage.getItem('crescendo_yt')}catch(e){}
+if(DEFAULT_URL||saved)setSong(DEFAULT_URL||saved);
 
 /* ---------- state changes ---------- */
 function climax(){
@@ -127,6 +137,7 @@ cv.addEventListener('pointermove',e=>{
   lx=px;ly=py
 });
 addEventListener('keydown',e=>{
+  if(e.target.tagName==='INPUT')return;
   if(e.key==='1')setMode('tease');if(e.key==='2')setMode('press');if(e.key==='3')setMode('rhythm');
   if(e.code==='Space'&&!e.repeat&&mode==='press'){e.preventDefault();initAudio();held=true}
 });
