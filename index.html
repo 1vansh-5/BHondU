@@ -72,14 +72,17 @@ function setHint(s){hintEl.style.opacity=0;clearTimeout(hintTimer);hintTimer=set
 setHint();
 
 /* ---------- sound: YouTube player (official embed) ---------- */
-const DEFAULT_URL=''; /* optional: paste a YouTube link here to hard-code the song for every visitor */
+/* Preloaded song (official YouTube embed). If the first can't be embedded, the next is tried. Edit this list to change the song. */
+const PRELOAD=['LYkIIc9q6BE','rS9NQ3hd4mw','gAkI8iRJji4'];
+let pi=0,custom=false;
 let yt=null,ytOk=false,snd=true,vol=-1,curId=null,apiAsked=false;
 const songMsg=m=>{document.getElementById('songmsg').textContent=m};
 const ytId=u=>{u=(u||'').trim();const m=u.match(/(?:v=|youtu\.be\/|embed\/|shorts\/)([\w-]{11})/);return m?m[1]:(/^[\w-]{11}$/.test(u)?u:null)};
 function mkPlayer(){yt=new YT.Player('ytp',{width:200,height:113,videoId:curId,playerVars:{playsinline:1,rel:0,autoplay:1},
-  events:{onReady:()=>{ytOk=true;vol=-1;if(!snd)yt.pauseVideo()},onStateChange:e=>{if(e.data===0&&snd)yt.playVideo()}}})}
-function setSong(u){
+  events:{onReady:()=>{ytOk=true;vol=-1;if(!snd)yt.pauseVideo()},onStateChange:e=>{if(e.data===0&&snd)yt.playVideo()},onError:()=>{if(!custom&&pi<PRELOAD.length-1){pi++;curId=PRELOAD[pi];yt.loadVideoById({videoId:curId});if(!snd)yt.pauseVideo()}else songMsg('This video cannot be embedded. Paste another link.')}}})}
+function setSong(u,isCustom){
   const id=ytId(u);if(!id){songMsg('That is not a YouTube link.');return}
+  if(isCustom)custom=true;
   curId=id;songMsg('');try{localStorage.setItem('crescendo_yt',id)}catch(e){}
   if(yt&&ytOk){yt.loadVideoById({videoId:id});if(!snd)yt.pauseVideo();return}
   if(window.YT&&YT.Player){mkPlayer();return}
@@ -90,11 +93,11 @@ function aud(){if(!ytOk)return;const v=snd?(phase==='peak'?100:Math.round(10+a*9
 function tick(){}
 function bloom(){}
 document.getElementById('snd').onclick=e=>{snd=!snd;e.currentTarget.setAttribute('aria-pressed',snd);e.currentTarget.textContent=snd?'Sound on':'Sound off';if(ytOk){snd?yt.playVideo():yt.pauseVideo()}};
-const go=()=>setSong(document.getElementById('songurl').value);
+const go=()=>setSong(document.getElementById('songurl').value,true);
 document.getElementById('songgo').onclick=go;
 document.getElementById('songurl').addEventListener('keydown',e=>{if(e.key==='Enter')go()});
 let saved=null;try{saved=localStorage.getItem('crescendo_yt')}catch(e){}
-if(DEFAULT_URL||saved)setSong(DEFAULT_URL||saved);
+if(saved)setSong(saved,true);else setSong(PRELOAD[0]);
 
 /* ---------- state changes ---------- */
 function climax(){
